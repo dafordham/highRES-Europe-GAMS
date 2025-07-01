@@ -80,12 +80,12 @@ $setglobal GWatts "YES"
 $setglobal storage "ON"
 $setglobal hydrores "ON"
 $setglobal sensitivity "OFF"
-$setglobal UC "ON"
-$setglobal store_uc "ON"
+$setglobal UC "OFF"
+$setglobal store_uc "OFF"
 
 ** Unit comittment switches
 
-$setglobal f_res "ON"
+$setglobal f_res "OFF"
 $setglobal f_res_mode "fixed"
 
 * Case options
