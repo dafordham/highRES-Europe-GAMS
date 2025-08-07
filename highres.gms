@@ -284,6 +284,7 @@ $IF "%co2_target_extent%" == "zonal" co2_target(z)=round(co2_target(z)*(card(h)/
 $endif
 gen_capex(g)=round(gen_capex(g)*(card(h)/8760.),8);
 gen_fom(g)=round(gen_fom(g)*(card(h)/8760.),8);
+gen_vreconnection(vre,z,r)=round(gen_vreconnection(vre,z,r)*(card(h)/8760.),8);
 trans_line_capex(trans)=round(trans_line_capex(trans)*(card(h)/8760.),8);
 trans_sub_capex(trans)=round(trans_sub_capex(trans)*(card(h)/8760.),8);
 
@@ -303,6 +304,7 @@ costs                                    total electricty system costs
 costs_gen_capex(z)
 costs_gen_fom(z)
 costs_gen_varom(z)
+costs_gen_vreconnection(z)
 $IF "%UC%" == ON costs_gen_start(z)
 costs_store_capex(z)
 costs_store_fom(z)
@@ -506,6 +508,7 @@ eq_obj
 eq_costs_gen_capex
 eq_costs_gen_fom
 eq_costs_gen_varom
+eq_costs_gen_vreconnection
 $IF "%UC%" == ON eq_costs_gen_start
 eq_costs_store_capex
 eq_costs_store_fom
@@ -555,6 +558,7 @@ eq_obj .. costs =E= sum(z,
 costs_gen_capex(z)
 +costs_gen_fom(z)
 +costs_gen_varom(z)
++costs_gen_vreconnection(z)
 $IF "%UC%" == ON +costs_gen_start(z)
 +costs_store_capex(z)
 +costs_store_fom(z)
@@ -567,6 +571,12 @@ $IF "%pen_gen%" == ON +costs_pgen(z)
 
 eq_costs_gen_capex(z)..
     costs_gen_capex(z) =E= sum(g,var_new_pcap_z(z,g)*gen_capex(g));
+
+
+eq_costs_gen_vreconnection(z)..
+    costs_gen_vreconnection(z) =E= sum(vre_lim(vre,z,r)$(gen_vreconnection(vre,z,r) > 0.),
+                                    gen_vreconnection(vre,z,r)*var_new_vre_pcap_r(z,vre,r));
+                                
 
 eq_costs_gen_fom(z)..
     costs_gen_fom(z) =E= sum(g,var_new_pcap_z(z,g)*gen_fom(g))

@@ -35,6 +35,8 @@ parameter gen_capex(g);
 parameter gen_varom(g);
 parameter gen_fom(g);
 parameter gen_fuelcost(g);
+* currently only offshore wind techs have connection cost
+parameter gen_vreconnection(vre,z,r);
 parameter gen_mingen(g);
 parameter gen_emisfac(g);
 parameter gen_maxramp(g);
