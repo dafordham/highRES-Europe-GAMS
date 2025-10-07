@@ -820,34 +820,7 @@ $endif.a
 
 
 
-* biomass constraint
 
-equations
-eq_max_bio
-;
-
-set bio(non_vre) / Biomass, BiomassCCS /;
-
-parameter bio_eff(non_vre);
-bio_eff("Biomass")=0.31;
-bio_eff("BiomassCCS")=0.28;
-
-eq_max_bio .. sum((gen_lim(z,non_vre),h)$(bio(non_vre)),var_gen(h,z,non_vre)/bio_eff(non_vre))/1E3 =L= 1000.0*card(h)/8760.;
-
-
-* BECCS constraint
-
-$ifThenE not (sameas('%psys_scen%','BECCSnolim'))
-
-equations
-eq_max_pgen_beccs
-;
-
-set beccs(non_vre) / BiomassCCS /;
-
-eq_max_pgen_beccs .. sum((gen_lim(z,non_vre),h)$(beccs(non_vre)),var_gen(h,z,non_vre))/1E3 =L= 80.7*card(h)/8760.;
-
-$endif
 
 * Capacity Margin
 
