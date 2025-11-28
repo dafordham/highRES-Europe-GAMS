@@ -146,7 +146,7 @@ $IF "%storage%" == ON $INCLUDE %codefolderpath%/highres_storage_setup.gms
 * before the update is run -> sensitivity data must be imported here
 
 
-$IF "%sensitivity%" == ON $INCLUDE %datafolderpath%/sensitivity_%sense_run%.dd
+$IF "%sensitivity%" == ON $INCLUDE %datafolderpath%/%psys_scen%_sensitivity.dd
 
 * if no RPS set just do an optimal run
 
@@ -159,6 +159,8 @@ RPS
 RPS=RPS/100.
 
 $label optimal1
+* I don't know why the semicolon below is needed to prevent errors
+;
 
 
 demand(z,h)=demand(z,h)/MWtoGW;
