@@ -8,9 +8,6 @@ $ONEMPTY
 * Parameters such as slack and cost-optimal value.
 $INCLUDE %mgapath%/mga_parameters.dd
 
-* $setglobal mode minimizing/maximizing for Solve statement. 
-$INCLUDE %mgapath%/mgaMode.gms
-
 * Subsets for focus of MGA objective
 Set
     mga_z(z)  "zones included in MGA objective"

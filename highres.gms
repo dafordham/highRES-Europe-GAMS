@@ -130,7 +130,7 @@ $endif
 $setglobal water "OFF"
 $setglobal fx_natcap "NO"
 
-$setglobal mode minimizing
+$setglobal mode "minimizing"
 
 
 **************************************************
