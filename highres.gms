@@ -79,7 +79,7 @@ $setglobal GWatts "YES"
 
 $setglobal storage "ON"
 $setglobal hydrores "ON"
-$setglobal sensitivity "OFF"
+$setglobal sensitivity "ON"
 $setglobal UC "ON"
 $setglobal store_uc "ON"
 
@@ -849,6 +849,7 @@ eq_max_bio .. sum((gen_lim(z,non_vre),h)$(bio(non_vre)),var_gen(h,z,non_vre)/bio
 
 * BECCS constraint
 
+
 $ifThenE not (sameas('%psys_scen%','BECCSnolim'))
 
 equations
@@ -857,9 +858,18 @@ eq_max_pgen_beccs
 
 set beccs(non_vre) / BiomassCCS /;
 
-eq_max_pgen_beccs .. sum((gen_lim(z,non_vre),h)$(beccs(non_vre)),var_gen(h,z,non_vre))/1E3 =L= 80.7*card(h)/8760.;
+scalar seq_limit;
+
+* Limit set as BECCS generation needed to meet emissions constraint
+* plus 5 MtCO2 buffer
+
+seq_limit=(sum(z,co2_target(z))-5000)/1E3/gen_emisfac("BiomassCCS");
+
+
+eq_max_pgen_beccs .. sum((gen_lim(z,non_vre),h)$(beccs(non_vre)),var_gen(h,z,non_vre))/1E3 =L= seq_limit;
 
 $endif
+
 
 * Capacity Margin
 
