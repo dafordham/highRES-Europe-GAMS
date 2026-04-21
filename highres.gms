@@ -118,6 +118,9 @@ $setglobal hydro_res_min "0.5"
 $set pen_gen "OFF"
 $setglobal pgen "20.0"
 
+*eps-contraint method
+$setglobal epsilon_param "0.05"
+
 * Caution: EV is not implemented for UC
 $setglobal EV "OFF"
 $ifThen "%EV%" == ON
@@ -559,6 +562,11 @@ eq_co2_target
 
 ;
 
+** eps-constraint method
+Equation eq_shed_bound;
+Scalar epsilon_param /%epsilon_param%/;
+Positive Variable var_shed(h,z);
+
 ******************************************
 * OBJECTIVE FUNCTION
 ******************************************
@@ -683,6 +691,9 @@ $endIf
 $IF "%pen_gen%" == ON +var_pgen(h,z)
 
 $IF "%EV%" == ON - (par_ev_charging(z,h)*par_vehicles(z)*(1-s_EV_flex))/store_eff_in("EV")
+
+*eps-constraint method
++ var_shed(h,z)
 
 =E= demand(z,h);
 
@@ -841,7 +852,9 @@ $endif.b
 $endif.a
 
 
-
+*eps-constriant method
+eq_shed_bound(h)..
+    sum(z, var_shed(h,z)) =L= epsilon_param * Sum(z, demand(z,h));
 
 
 * Capacity Margin
@@ -938,7 +951,7 @@ $INCLUDE %codefolderpath%/highres_results.gms
 
 * dump data to GDX
 $setEnv GDXCOMPRESS 1
-execute_unload "%outname%"
+execute_unload "%outname%.gdx"
 
 * convert GDX to SQLite
 
