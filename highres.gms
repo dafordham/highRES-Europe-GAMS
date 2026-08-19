@@ -118,8 +118,20 @@ $setglobal hydro_res_min "0.5"
 $set pen_gen "OFF"
 $setglobal pgen "20.0"
 
-*eps-contraint method
-$setglobal epsilon_param "0.05"
+* Shed-tolerance formulation (shed_mode):
+*   off      - no shedding at all; strict adequacy, stock highRES  (DEFAULT)
+*   yearly   - budget only:    sum_(h,z) shed <= epsilon * total demand
+*   hourly   - depth cap only: sum_z shed(h,z) <= delta * demand(h)   [all h]
+*   depthcap - both (article formulation)
+*
+* Parameter meanings are FIXED across modes:
+*   epsilon_param = shedding budget over the whole horizon, as a fraction of
+*                   total demand                        (1.0 = effectively off)
+*   delta_param   = per-hour depth cap, as a fraction of that hour's demand
+*                                                       (1.0 = effectively off)
+$if not set shed_mode     $setglobal shed_mode "off"
+$if not set epsilon_param $setglobal epsilon_param "1.0"
+$if not set delta_param   $setglobal delta_param "1.0"
 
 * Caution: EV is not implemented for UC
 $setglobal EV "OFF"
@@ -562,10 +574,19 @@ eq_co2_target
 
 ;
 
-** eps-constraint method
-Equation eq_shed_bound;
+** shed-tolerance formulations (see shed_mode switch at the top of this file)
 Scalar epsilon_param /%epsilon_param%/;
+Scalar delta_param /%delta_param%/;
 Positive Variable var_shed(h,z);
+
+* Declare only the equations that the selected mode actually defines below,
+* otherwise GAMS errors on a declared-but-undefined equation.
+* per-hour depth cap (delta): hourly and depthcap modes
+$if "%shed_mode%" == "hourly"   Equation eq_shed_depth;
+$if "%shed_mode%" == "depthcap" Equation eq_shed_depth;
+* budget over the horizon (epsilon): yearly and depthcap modes
+$if "%shed_mode%" == "yearly"   Equation eq_shed_budget;
+$if "%shed_mode%" == "depthcap" Equation eq_shed_budget;
 
 ******************************************
 * OBJECTIVE FUNCTION
@@ -852,9 +873,31 @@ $endif.b
 $endif.a
 
 
-*eps-constriant method
-eq_shed_bound(h)..
-    sum(z, var_shed(h,z)) =L= epsilon_param * Sum(z, demand(z,h));
+* Shed-tolerance constraints (shed_mode switch, see declarations).
+* epsilon_param is ALWAYS the horizon budget; delta_param ALWAYS the hourly cap.
+
+$ifThen.shedhourly "%shed_mode%" == "hourly"
+eq_shed_depth(h)..
+    sum(z, var_shed(h,z)) =L= delta_param * Sum(z, demand(z,h));
+$endIf.shedhourly
+
+$ifThen.shedyearly "%shed_mode%" == "yearly"
+eq_shed_budget..
+    sum((h,z), var_shed(h,z)) =L= epsilon_param * Sum((h,z), demand(z,h));
+$endIf.shedyearly
+
+$ifThen.sheddepthcap "%shed_mode%" == "depthcap"
+eq_shed_budget..
+    sum((h,z), var_shed(h,z)) =L= epsilon_param * Sum((h,z), demand(z,h));
+eq_shed_depth(h)..
+    sum(z, var_shed(h,z)) =L= delta_param * Sum(z, demand(z,h));
+$endIf.sheddepthcap
+
+* off: no shed equations at all — pin the variable so presolve removes it,
+* leaving the stock highRES strict-adequacy model.
+$ifThen.shedoff "%shed_mode%" == "off"
+var_shed.fx(h,z) = 0;
+$endIf.shedoff
 
 
 * Capacity Margin
