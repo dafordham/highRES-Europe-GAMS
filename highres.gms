@@ -129,9 +129,30 @@ $setglobal pgen "20.0"
 *                   total demand                        (1.0 = effectively off)
 *   delta_param   = per-hour depth cap, as a fraction of that hour's demand
 *                                                       (1.0 = effectively off)
+*
+* Shed-tolerance scope (shed_scope):
+*   system - one budget / depth cap for Europe as a whole          (DEFAULT)
+*   zonal  - the SAME epsilon and delta enforced separately per country
+*
+* The two scopes offer the same total tolerance -- sum_z epsilon*D_z equals
+* epsilon*D_tot -- but system scope lets the optimiser spend it wherever it is
+* cheapest, while zonal scope confines each country to its own. Zonal is
+* therefore always at least as expensive; the gap is the value of sharing
+* flexibility across borders. Zonal equations carry a _z suffix so the two
+* formulations cannot be confused in the results database.
 $if not set shed_mode     $setglobal shed_mode "off"
+$if not set shed_scope    $setglobal shed_scope "system"
 $if not set epsilon_param $setglobal epsilon_param "1.0"
 $if not set delta_param   $setglobal delta_param "1.0"
+
+* Which constraint families the selected mode needs. Deriving these once keeps
+* the scope x mode combinatorics below to two flags rather than eight branches.
+$setglobal need_depth  "0"
+$setglobal need_budget "0"
+$if "%shed_mode%" == "hourly"   $setglobal need_depth  "1"
+$if "%shed_mode%" == "depthcap" $setglobal need_depth  "1"
+$if "%shed_mode%" == "yearly"   $setglobal need_budget "1"
+$if "%shed_mode%" == "depthcap" $setglobal need_budget "1"
 
 * Caution: EV is not implemented for UC
 $setglobal EV "OFF"
@@ -579,14 +600,15 @@ Scalar epsilon_param /%epsilon_param%/;
 Scalar delta_param /%delta_param%/;
 Positive Variable var_shed(h,z);
 
-* Declare only the equations that the selected mode actually defines below,
-* otherwise GAMS errors on a declared-but-undefined equation.
-* per-hour depth cap (delta): hourly and depthcap modes
-$if "%shed_mode%" == "hourly"   Equation eq_shed_depth;
-$if "%shed_mode%" == "depthcap" Equation eq_shed_depth;
-* budget over the horizon (epsilon): yearly and depthcap modes
-$if "%shed_mode%" == "yearly"   Equation eq_shed_budget;
-$if "%shed_mode%" == "depthcap" Equation eq_shed_budget;
+* Declare only the equations that the selected mode and scope actually define
+* below, otherwise GAMS errors on a declared-but-undefined equation.
+$ifThen.scopedecl "%shed_scope%" == "zonal"
+$if "%need_depth%"  == "1" Equation eq_shed_depth_z;
+$if "%need_budget%" == "1" Equation eq_shed_budget_z;
+$else.scopedecl
+$if "%need_depth%"  == "1" Equation eq_shed_depth;
+$if "%need_budget%" == "1" Equation eq_shed_budget;
+$endIf.scopedecl
 
 ******************************************
 * OBJECTIVE FUNCTION
@@ -873,25 +895,36 @@ $endif.b
 $endif.a
 
 
-* Shed-tolerance constraints (shed_mode switch, see declarations).
-* epsilon_param is ALWAYS the horizon budget; delta_param ALWAYS the hourly cap.
+* Shed-tolerance constraints (shed_mode and shed_scope switches, see
+* declarations). epsilon_param is ALWAYS the horizon budget; delta_param is
+* ALWAYS the hourly depth cap. Scope decides whether each is enforced on the
+* European aggregate or country by country.
 
-$ifThen.shedhourly "%shed_mode%" == "hourly"
-eq_shed_depth(h)..
-    sum(z, var_shed(h,z)) =L= delta_param * Sum(z, demand(z,h));
-$endIf.shedhourly
+$ifThen.scopeeq "%shed_scope%" == "zonal"
 
-$ifThen.shedyearly "%shed_mode%" == "yearly"
+$ifThen.zbudget "%need_budget%" == "1"
+eq_shed_budget_z(z)..
+    sum(h, var_shed(h,z)) =L= epsilon_param * Sum(h, demand(z,h));
+$endIf.zbudget
+
+$ifThen.zdepth "%need_depth%" == "1"
+eq_shed_depth_z(h,z)..
+    var_shed(h,z) =L= delta_param * demand(z,h);
+$endIf.zdepth
+
+$else.scopeeq
+
+$ifThen.sbudget "%need_budget%" == "1"
 eq_shed_budget..
     sum((h,z), var_shed(h,z)) =L= epsilon_param * Sum((h,z), demand(z,h));
-$endIf.shedyearly
+$endIf.sbudget
 
-$ifThen.sheddepthcap "%shed_mode%" == "depthcap"
-eq_shed_budget..
-    sum((h,z), var_shed(h,z)) =L= epsilon_param * Sum((h,z), demand(z,h));
+$ifThen.sdepth "%need_depth%" == "1"
 eq_shed_depth(h)..
     sum(z, var_shed(h,z)) =L= delta_param * Sum(z, demand(z,h));
-$endIf.sheddepthcap
+$endIf.sdepth
+
+$endIf.scopeeq
 
 * off: no shed equations at all — pin the variable so presolve removes it,
 * leaving the stock highRES strict-adequacy model.
