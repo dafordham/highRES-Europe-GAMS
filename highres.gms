@@ -44,6 +44,16 @@ $offdigit
 *               iii) investment capped to user value "trans_cap_lim"
 * trans_cap_lim = MW limit for each line available in model
 * fx_caps_to = file containing capacities to fix the system to
+*
+* Climate-Robust Pathways switches:
+*
+* fix_fleet = .dd file holding a previously solved fleet. When set, every
+*               capacity in the system is fixed to it and only dispatch is
+*               free. Empty means capacity stays a decision, as in stock runs.
+* ens_obj (ON/OFF) = minimise energy not served subject to an operating cost
+*               cap, instead of minimising cost. Requires fix_fleet.
+* delta = relative slack on the reference operating cost, i.e. the dispatch may
+*               spend up to opex* x (1 + delta) on varom
 * co2intensity = Average annual carbon dioxide emission intensity
 *                the model is allowed to produce (gCO2/kWh)
 * emis_price = emission price for non VRE
@@ -106,6 +116,13 @@ $setglobal dem_yr "1995"
 $setglobal trans_inv "TYNDP"
 $setglobal trans_cap_lim "20"
 $setglobal fx_caps_to ""
+
+* Climate-Robust Pathways
+
+$setglobal fix_fleet ""
+$setglobal ens_obj "OFF"
+$setglobal delta "0.05"
+
 *$setglobal co2intensity "2"
 $setglobal emis_price "0"
 
@@ -309,6 +326,8 @@ store_ecapex(s)=round(store_ecapex(s)*(card(h)/8760.),8);
 Variables
 costs                                    total electricty system costs
 
+$IF "%ens_obj%" == ON ens_total          total energy not served (objective when ens_obj is ON)
+
 * Total cost components
 
 costs_gen_capex(z)
@@ -350,6 +369,8 @@ var_exist_trans_pcap(z,z_alias,trans)  Existing capacity of node to node
 *                                      transmissions links (MW)
 
 var_pgen(h,z)                      Penalty generation
+
+$IF "%ens_obj%" == ON var_ens(h,z)  Energy not served by hour and zone
 
 ;
 
@@ -512,6 +533,109 @@ var_trans_pcap.FX(z,z_alias,trans)=par_trans_pcap(z,z_alias,trans);
 $endIf
 
 
+*********************************************************
+*** CLIMATE-ROBUST PATHWAYS: fix the fleet            ***
+*********************************************************
+
+* Pins every capacity in the system to a previously solved fleet read from
+* %fix_fleet%.dd, leaving only dispatch free.
+*
+* Deliberately separate from fx_caps_to above, which is left untouched. That
+* block does not compile (var_trans_pcap and exist_vre_cap_r no longer exist),
+* it collapses each zone's VRE onto a single grid cell chosen by ordinal
+* position, and it never fixes hydro reservoir energy capacity.
+*
+* VRE is fixed at grid cell level and never zonally. eq_new_vre_pcap_z already
+* ties sum(cells) = var_new_pcap_z, so fixing both over-determines the system
+* and any rounding mismatch makes it infeasible. Fixing only the zonal total
+* would be worse: the optimiser could relocate VRE within a zone to suit
+* whichever weather realisation it faces, which is re-investing rather than
+* dispatching, and would understate ENS.
+
+$ifThen.fxfleet NOT "%fix_fleet%" == ""
+
+* A fleet component the expansion never built -- new hydro reservoir energy,
+* say -- has no entry in the .dd at all, and GAMS reports a parameter that is
+* declared but never assigned as error 141. Here that is the intended meaning:
+* absent from the fleet file means zero capacity, which is exactly what an
+* unassigned parameter already is. Suppressed only around this block.
+*
+* Do NOT try to solve this by zero-initialising the parameters before the
+* $INCLUDE. The include and the .dd's data statements are compile-time, while
+* an assignment is execution-time, so the zeroing runs AFTER the load however
+* it is ordered in the file, and silently wipes the fleet to nothing. That
+* produces an infeasible model whose first bad row is eq_tot_store_pcap_z,
+* because the data still fixes tot while new and exist have been zeroed.
+
+$onImplicitAssign
+
+parameters
+par_fix_new_pcap_z(z,g)            fixed new non-VRE capacity by zone
+par_fix_exist_pcap_z(z,g)          fixed existing non-VRE capacity by zone
+par_fix_new_vre_pcap_r(z,vre,r)    fixed new VRE capacity by grid cell
+par_fix_exist_vre_pcap_r(z,vre,r)  fixed existing VRE capacity by grid cell
+$IF "%storage%" == ON par_fix_new_store_pcap_z(z,s)
+$IF "%storage%" == ON par_fix_exist_store_pcap_z(z,s)
+$IF "%storage%" == ON par_fix_new_store_ecap_z(z,s)
+$IF "%storage%" == ON par_fix_exist_store_ecap_z(z,s)
+$IF "%hydrores%" == ON par_fix_new_hydro_ecap_z(z,hydro_res)
+$IF "%hydrores%" == ON par_fix_exist_hydro_ecap_z(z,hydro_res)
+par_fix_new_trans_pcap(z,z_alias,trans)
+par_fix_exist_trans_pcap(z,z_alias,trans)
+par_opex_star                      reference operating cost of the run that built this fleet
+;
+
+$INCLUDE %datafolderpath%/%fix_fleet%.dd
+;
+
+* Non-VRE generation: zonal
+
+var_new_pcap_z.FX(z,non_vre)   = par_fix_new_pcap_z(z,non_vre);
+var_exist_pcap_z.FX(z,non_vre) = par_fix_exist_pcap_z(z,non_vre);
+
+* VRE: grid cell level, restricted to the cells a technology can exist in.
+* Note vre_lim is declared (vre,z,r) while the variable is (z,vre,r), so the
+* set cannot be used as the controlling index directly -- it would bind
+* positionally and put vre in z's slot. The dollar condition is the form the
+* model already uses for transmission at var_exist_trans_pcap.FX above.
+
+var_new_vre_pcap_r.FX(z,vre,r)$(vre_lim(vre,z,r))
+    = par_fix_new_vre_pcap_r(z,vre,r);
+var_exist_vre_pcap_r.FX(z,vre,r)$(vre_lim(vre,z,r))
+    = par_fix_exist_vre_pcap_r(z,vre,r);
+
+$ifThen.fxstore "%storage%" == ON
+
+* Note EV storage is not special-cased here; with EV OFF its capacities are
+* already zero and the fixing is consistent. Revisit if EV is ever turned on.
+
+var_new_store_pcap_z.FX(z,s)   = par_fix_new_store_pcap_z(z,s);
+var_exist_store_pcap_z.FX(z,s) = par_fix_exist_store_pcap_z(z,s);
+var_new_store_ecap_z.FX(z,s)   = par_fix_new_store_ecap_z(z,s);
+var_exist_store_ecap_z.FX(z,s) = par_fix_exist_store_ecap_z(z,s);
+
+$endIf.fxstore
+
+$ifThen.fxhydro "%hydrores%" == ON
+
+var_new_hydro_ecap_z.FX(z,hydro_res)   = par_fix_new_hydro_ecap_z(z,hydro_res);
+var_exist_hydro_ecap_z.FX(z,hydro_res) = par_fix_exist_hydro_ecap_z(z,hydro_res);
+
+$endIf.fxhydro
+
+* Transmission. This overrides whatever trans_inv set above, deliberately: with
+* a fixed fleet the lines are part of the fleet.
+
+var_new_trans_pcap.FX(z,z_alias,trans)$(trans_links(z,z_alias,trans))
+    = par_fix_new_trans_pcap(z,z_alias,trans);
+var_exist_trans_pcap.FX(z,z_alias,trans)$(trans_links(z,z_alias,trans))
+    = par_fix_exist_trans_pcap(z,z_alias,trans);
+
+$offImplicitAssign
+
+$endIf.fxfleet
+
+
 Equations
 eq_obj
 
@@ -552,6 +676,9 @@ eq_trans_flow
 eq_trans_bidirect_new
 eq_trans_bidirect_exist
 $IF "%pen_gen%" == ON eq_pen_gen
+
+$IF "%ens_obj%" == ON eq_ens_total
+$IF "%ens_obj%" == ON eq_opex_cap
 
 eq_co2_target
 
@@ -607,6 +734,38 @@ $endIf
 $ifThen "%pen_gen%" == ON
     eq_pen_gen(z)..
         costs_pgen(z) =E= sum((h),var_pgen(h,z)*%pgen%);
+$endIf
+
+$ifThen "%ens_obj%" == ON
+
+$if "%fix_fleet%" == "" $abort ens_obj=ON requires fix_fleet: there is no fleet to dispatch and no opex* to cap against
+
+* Energy not served over the whole system and the whole horizon. This is the
+* objective: of all the ways to operate this fixed fleet that cost no more than
+* opex* x (1 + delta), find the one that sheds least. ENS is system-wide by
+* decision; who carries it is an a posteriori question answered from var_ens.
+
+    eq_ens_total ..
+        ens_total =E= sum((h,z),var_ens(h,z));
+
+* Cost demoted from objective to constraint. Only varom appears: with the fleet
+* fixed, capex, FOM, VRE connection and transmission costs are all constants, so
+* varom is the only spend the dispatch actually controls. Including the
+* constants would inflate a relative slack by delta x (those constants), and
+* across pathway steps -- where capital costs evolve between t-1 and t -- they
+* would not even cancel.
+*
+* Shedding is deliberately NOT priced in here. It is the objective; pricing it
+* as well would cap a budget that already penalises the quantity being
+* minimised. Note this makes the constraint bind from above: shedding lowers
+* cost, so reducing ENS means dispatching more expensive plant until the cap
+* stops it. eq_opex_cap.M is therefore ENS avoided per euro, and inverts to
+* EUR/MWh of avoided shedding.
+
+    eq_opex_cap ..
+        sum(z,costs_gen_varom(z)+costs_store_varom(z))
+        =L= par_opex_star*(1.+%delta%);
+
 $endIf
 
 eq_costs_store_capex(z)..
@@ -681,6 +840,8 @@ $ifThen "%storage%" == ON
 $endIf
 
 $IF "%pen_gen%" == ON +var_pgen(h,z)
+
+$IF "%ens_obj%" == ON +var_ens(h,z)
 
 $IF "%EV%" == ON - (par_ev_charging(z,h)*par_vehicles(z)*(1-s_EV_flex))/store_eff_in("EV")
 
@@ -884,15 +1045,34 @@ Model Dispatch /all/;
 Dispatch.OptFile = 1;
 
 
-$ifThen "%UC%" == ON
+$ifThen.obj "%ens_obj%" == ON
+
+* Cost is still computed -- eq_obj and the cost components stay in the model,
+* and eq_opex_cap needs them -- it is simply no longer what is optimised.
+
+$ifThen.uc1 "%UC%" == ON
+
+Solve Dispatch minimizing ens_total using MIP;
+
+$else.uc1
+
+Solve Dispatch minimizing ens_total using LP;
+
+$endIf.uc1
+
+$else.obj
+
+$ifThen.uc2 "%UC%" == ON
 
 Solve Dispatch minimizing costs using MIP;
 
-$else
+$else.uc2
 
 Solve Dispatch minimizing costs using LP;
 
-$endIf
+$endIf.uc2
+
+$endIf.obj
 
 
 parameter trans_f(h,z,z_alias,trans);
