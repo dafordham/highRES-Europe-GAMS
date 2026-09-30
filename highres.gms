@@ -554,8 +554,8 @@ $endIf
 
 $ifThen.fxfleet NOT "%fix_fleet%" == ""
 
-* A fleet component the expansion never built -- new hydro reservoir energy,
-* say -- has no entry in the .dd at all, and GAMS reports a parameter that is
+* A fleet component the expansion never built, such as new hydro reservoir
+* energy, has no entry in the .dd at all, and GAMS reports a parameter that is
 * declared but never assigned as error 141. Here that is the intended meaning:
 * absent from the fleet file means zero capacity, which is exactly what an
 * unassigned parameter already is. Suppressed only around this block.
@@ -595,7 +595,7 @@ var_exist_pcap_z.FX(z,non_vre) = par_fix_exist_pcap_z(z,non_vre);
 
 * VRE: grid cell level, restricted to the cells a technology can exist in.
 * Note vre_lim is declared (vre,z,r) while the variable is (z,vre,r), so the
-* set cannot be used as the controlling index directly -- it would bind
+* set cannot be used as the controlling index directly, because it would bind
 * positionally and put vre in z's slot. The dollar condition is the form the
 * model already uses for transmission at var_exist_trans_pcap.FX above.
 
@@ -752,7 +752,7 @@ $if "%fix_fleet%" == "" $abort ens_obj=ON requires fix_fleet: there is no fleet 
 * fixed, capex, FOM, VRE connection and transmission costs are all constants, so
 * varom is the only spend the dispatch actually controls. Including the
 * constants would inflate a relative slack by delta x (those constants), and
-* across pathway steps -- where capital costs evolve between t-1 and t -- they
+* across pathway steps, where capital costs evolve between t-1 and t, they
 * would not even cancel.
 *
 * Shedding is deliberately NOT priced in here. It is the objective; pricing it
@@ -1047,8 +1047,8 @@ Dispatch.OptFile = 1;
 
 $ifThen.obj "%ens_obj%" == ON
 
-* Cost is still computed -- eq_obj and the cost components stay in the model,
-* and eq_opex_cap needs them -- it is simply no longer what is optimised.
+* Cost is still computed, since eq_obj and the cost components stay in the
+* model and eq_opex_cap needs them. It is simply no longer what is optimised.
 
 $ifThen.uc1 "%UC%" == ON
 

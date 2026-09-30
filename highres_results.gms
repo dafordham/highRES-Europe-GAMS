@@ -448,10 +448,10 @@ $offtext
 * per-zone split that the a posteriori country analysis needs.
 *
 * Two duals are worth reading off the solved model, both free:
-*   eq_opex_cap.M   -- ENS avoided per euro of operating budget. Inverted, it is
+*   eq_opex_cap.M   : ENS avoided per euro of operating budget. Inverted, it is
 *                      the EUR/MWh of avoided shedding that cross-checks against
 *                      the implied price of reliability in the other project.
-*   eq_co2_target.M -- if nonzero, the carbon cap is binding, and some of the
+*   eq_co2_target.M : if nonzero, the carbon cap is binding, and some of the
 *                      ENS is carbon-driven rather than adequacy-driven. The
 *                      intensity target's allowance is built from demand rather
 *                      than served demand, so shedding relieves it.
@@ -467,8 +467,8 @@ o_ens_z(z) = sum(h,var_ens.L(h,z));
 parameter o_demand_total  total demand over the modelled horizon;
 o_demand_total = sum((z,h),demand(z,h));
 
-* The old epsilon: ENS as a fraction of demand. Reported rather than optimised
-* -- annual demand is a constant within a solve, so minimising this and
+* The old epsilon: ENS as a fraction of demand. Reported rather than optimised,
+* because annual demand is a constant within a solve, so minimising this and
 * minimising o_ens_total give the identical dispatch, and energy units keep the
 * objective away from solver tolerances and make eq_opex_cap.M invertible
 * directly into EUR/MWh.
