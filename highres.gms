@@ -45,11 +45,12 @@ $offdigit
 * trans_cap_lim = MW limit for each line available in model
 * fx_caps_to = file containing capacities to fix the system to
 *
+* pathways
 * Climate-Robust Pathways switches:
 *
 * fix_fleet = .dd file holding a previously solved fleet. When set, every
 *               capacity in the system is fixed to it and only dispatch is
-*               free. Empty means capacity stays a decision, as in stock runs.
+*               free. Empty means capacity stays a decision.
 * ens_obj (ON/OFF) = minimise energy not served subject to an operating cost
 *               cap, instead of minimising cost. Requires fix_fleet.
 * delta = relative slack on the reference operating cost, i.e. the dispatch may
@@ -117,6 +118,7 @@ $setglobal trans_inv "TYNDP"
 $setglobal trans_cap_lim "20"
 $setglobal fx_caps_to ""
 
+* pathways
 * Climate-Robust Pathways
 
 $setglobal fix_fleet ""
@@ -326,6 +328,7 @@ store_ecapex(s)=round(store_ecapex(s)*(card(h)/8760.),8);
 Variables
 costs                                    total electricty system costs
 
+* pathways
 $IF "%ens_obj%" == ON ens_total          total energy not served (objective when ens_obj is ON)
 
 * Total cost components
@@ -370,6 +373,7 @@ var_exist_trans_pcap(z,z_alias,trans)  Existing capacity of node to node
 
 var_pgen(h,z)                      Penalty generation
 
+* pathways
 $IF "%ens_obj%" == ON var_ens(h,z)  Energy not served by hour and zone
 
 ;
@@ -535,15 +539,14 @@ $endIf
 
 *********************************************************
 *** CLIMATE-ROBUST PATHWAYS: fix the fleet            ***
+* pathways
 *********************************************************
 
 * Pins every capacity in the system to a previously solved fleet read from
 * %fix_fleet%.dd, leaving only dispatch free.
 *
-* Deliberately separate from fx_caps_to above, which is left untouched. That
-* block does not compile (var_trans_pcap and exist_vre_cap_r no longer exist),
-* it collapses each zone's VRE onto a single grid cell chosen by ordinal
-* position, and it never fixes hydro reservoir energy capacity.
+* Deliberately separate from fx_caps_to above, which is left untouched. That 
+* block didn't seem to work.
 *
 * VRE is fixed at grid cell level and never zonally. eq_new_vre_pcap_z already
 * ties sum(cells) = var_new_pcap_z, so fixing both over-determines the system
@@ -554,20 +557,14 @@ $endIf
 
 $ifThen.fxfleet NOT "%fix_fleet%" == ""
 
-* A fleet component the expansion never built, such as new hydro reservoir
-* energy, has no entry in the .dd at all, and GAMS reports a parameter that is
-* declared but never assigned as error 141. Here that is the intended meaning:
-* absent from the fleet file means zero capacity, which is exactly what an
-* unassigned parameter already is. Suppressed only around this block.
+* caps2dd.py writes a block for every parameter below, empty if that capacity
+* is all zero. So a parameter left unassigned here means the name in the .dd
+* does not match the name declared, and GAMS error 141 catches it at compile
+* time rather than the capacity being silently fixed to zero.
 *
-* Do NOT try to solve this by zero-initialising the parameters before the
-* $INCLUDE. The include and the .dd's data statements are compile-time, while
-* an assignment is execution-time, so the zeroing runs AFTER the load however
-* it is ordered in the file, and silently wipes the fleet to nothing. That
-* produces an infeasible model whose first bad row is eq_tot_store_pcap_z,
-* because the data still fixes tot while new and exist have been zeroed.
-
-$onImplicitAssign
+* Do not zero these before the $INCLUDE. Includes and .dd data are
+* compile-time, assignments are execution-time, so the zeroing always runs
+* after the load and wipes the fleet.
 
 parameters
 par_fix_new_pcap_z(z,g)            fixed new non-VRE capacity by zone
@@ -631,8 +628,6 @@ var_new_trans_pcap.FX(z,z_alias,trans)$(trans_links(z,z_alias,trans))
 var_exist_trans_pcap.FX(z,z_alias,trans)$(trans_links(z,z_alias,trans))
     = par_fix_exist_trans_pcap(z,z_alias,trans);
 
-$offImplicitAssign
-
 $endIf.fxfleet
 
 
@@ -677,6 +672,7 @@ eq_trans_bidirect_new
 eq_trans_bidirect_exist
 $IF "%pen_gen%" == ON eq_pen_gen
 
+* pathways
 $IF "%ens_obj%" == ON eq_ens_total
 $IF "%ens_obj%" == ON eq_opex_cap
 
@@ -736,31 +732,19 @@ $ifThen "%pen_gen%" == ON
         costs_pgen(z) =E= sum((h),var_pgen(h,z)*%pgen%);
 $endIf
 
+* pathways
 $ifThen "%ens_obj%" == ON
 
 $if "%fix_fleet%" == "" $abort ens_obj=ON requires fix_fleet: there is no fleet to dispatch and no opex* to cap against
 
-* Energy not served over the whole system and the whole horizon. This is the
-* objective: of all the ways to operate this fixed fleet that cost no more than
-* opex* x (1 + delta), find the one that sheds least. ENS is system-wide by
-* decision; who carries it is an a posteriori question answered from var_ens.
+* Energy not served over the whole system and the whole horizon. Pathways
 
     eq_ens_total ..
         ens_total =E= sum((h,z),var_ens(h,z));
 
 * Cost demoted from objective to constraint. Only varom appears: with the fleet
 * fixed, capex, FOM, VRE connection and transmission costs are all constants, so
-* varom is the only spend the dispatch actually controls. Including the
-* constants would inflate a relative slack by delta x (those constants), and
-* across pathway steps, where capital costs evolve between t-1 and t, they
-* would not even cancel.
-*
-* Shedding is deliberately NOT priced in here. It is the objective; pricing it
-* as well would cap a budget that already penalises the quantity being
-* minimised. Note this makes the constraint bind from above: shedding lowers
-* cost, so reducing ENS means dispatching more expensive plant until the cap
-* stops it. eq_opex_cap.M is therefore ENS avoided per euro, and inverts to
-* EUR/MWh of avoided shedding.
+* varom is the only spend the dispatch actually controls. 
 
     eq_opex_cap ..
         sum(z,costs_gen_varom(z)+costs_store_varom(z))
@@ -841,6 +825,7 @@ $endIf
 
 $IF "%pen_gen%" == ON +var_pgen(h,z)
 
+* pathways
 $IF "%ens_obj%" == ON +var_ens(h,z)
 
 $IF "%EV%" == ON - (par_ev_charging(z,h)*par_vehicles(z)*(1-s_EV_flex))/store_eff_in("EV")
@@ -1045,6 +1030,7 @@ Model Dispatch /all/;
 Dispatch.OptFile = 1;
 
 
+* pathways
 $ifThen.obj "%ens_obj%" == ON
 
 * Cost is still computed, since eq_obj and the cost components stay in the
