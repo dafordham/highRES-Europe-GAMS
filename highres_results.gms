@@ -443,11 +443,27 @@ $offtext
 * pathways
 *********************************************************
 
+* Solve status, as numbers a caller can read. Both statuses were previously
+* only in highres.lst and in one field of the csv log line, which is why a
+* non-optimal solve could be consumed as if it were optimal: GAMS exits 0 and
+* the result parameters are still written. An infeasible fixed-fleet dispatch
+* reports o_ens_total = 0, which reads as a realisation that clears perfectly.
+*
+* modelstat 1 = optimal, 2 = locally optimal, 4 = infeasible, 5 = locally
+* infeasible, 7 = intermediate non-optimal, 19 = infeasible - no solution.
+* Anything other than 1 (or 8, integer solution, under unit commitment) must
+* not be ranked.
+
+parameter o_modelstat   model status of the solve;
+parameter o_solvestat   solver status of the solve;
+o_modelstat = Dispatch.modelStat;
+o_solvestat = Dispatch.solveStat;
+display o_modelstat, o_solvestat;
+
 * var_ens, ens_total and every marginal land in results.gdx already, because
 * execute_unload dumps all symbols. What is added here is the share of demand
 *
-* Two duals are worth reading off the solved model:
-*   eq_opex_cap.M   : ENS avoided per euro of operating budget. 
+* One dual is worth reading off the solved model:
 *   eq_co2_target.M : if nonzero, the carbon cap is binding, and some of the
 *                      ENS is carbon-driven rather than adequacy-driven. 
 
