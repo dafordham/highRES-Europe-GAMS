@@ -59,6 +59,10 @@ $offdigit
 * ens_obj (ON/OFF) = minimise energy not served instead of minimising cost.
 *               Requires fix_fleet. Cost is not constrained: ENS is the least
 *               unserved energy the fleet can manage at any cost.
+* fleet_from_inputs (ON/OFF) = write the fleet this model directory's inputs
+*               describe (existing capacity plus plant under construction) to
+*               %outname%.gdx and stop without solving. The starting fleet of
+*               a pathway milestone.
 * co2intensity = Average annual carbon dioxide emission intensity
 *                the model is allowed to produce (gCO2/kWh)
 * emis_price = emission price for non VRE
@@ -129,6 +133,7 @@ $setglobal fix_fleet ""
 $setglobal fleet_floor ""
 
 $setglobal ens_obj "OFF"
+$setglobal fleet_from_inputs "OFF"
 
 *$setglobal co2intensity "2"
 $setglobal emis_price "0"
@@ -749,6 +754,103 @@ var_exist_trans_pcap.FX(z,z_alias,trans)$(trans_links(z,z_alias,trans))
     = par_fix_exist_trans_pcap(z,z_alias,trans);
 
 $endIf.fxfleet
+
+
+*********************************************************
+*** CLIMATE-ROBUST PATHWAYS: a milestone's starting fleet
+* pathways
+*********************************************************
+
+* Reads every capacity off the bounds the data above has just set, writes it
+* and stops before any equation is generated. Done here rather than by parsing
+* the .dd files in Python so that the fleet is exactly what this model sees:
+* the same unit conversions, the same handling of zonal and per-cell VRE, of
+* hydro and of link direction. pathway_step.py turns the gdx into a fleet .dd
+* with caps2dd.py.
+*
+* Existing capacity takes its upper bound if it has one, its lower bound
+* otherwise. Where the data lets the optimiser keep or retire an existing plant
+* (an UP bound only), it is counted as kept: the most the fleet can have.
+*
+* New capacity is only what the limits force: max(0, total.LO - existing).
+* That is plant under construction, which the inputs step writes as a lower
+* bound on TOTAL capacity. Nothing in the data bounds new capacity itself from
+* below, and reading a bound nothing has assigned is GAMS error 141, so the
+* new variables' own .LO are not read. For VRE the zonal shortfall is spread over the
+* zone's cells in proportion to the area still free in each. At country level
+* there is one cell per zone and the split does nothing.
+
+$ifThen.fromin "%fleet_from_inputs%" == ON
+
+$if NOT "%fleet_dd%" == "" $abort fleet_from_inputs reads the fleet from the inputs, so it cannot be combined with fix_fleet or fleet_floor
+
+var_exist_pcap_z.L(z,g) = var_exist_pcap_z.LO(z,g);
+var_exist_pcap_z.L(z,g)$(var_exist_pcap_z.UP(z,g) < inf) = var_exist_pcap_z.UP(z,g);
+var_exist_vre_pcap_r.L(z,vre,r)$(vre_lim(vre,z,r)) = var_exist_vre_pcap_r.LO(z,vre,r);
+var_exist_vre_pcap_r.L(z,vre,r)$(vre_lim(vre,z,r) and var_exist_vre_pcap_r.UP(z,vre,r) < inf)
+    = var_exist_vre_pcap_r.UP(z,vre,r);
+var_exist_trans_pcap.L(z,z_alias,trans)$(trans_links(z,z_alias,trans))
+    = var_exist_trans_pcap.LO(z,z_alias,trans);
+
+var_new_pcap_z.L(z,g)$(not vre(g)) = max(0.,
+    var_tot_pcap_z.LO(z,g) - var_exist_pcap_z.L(z,g));
+
+* Some cells have unlimited free area (inf), where a proportional split is
+* undefined, so those zones split equally between their cells.
+
+parameter fleet_vre_short(z,vre)   VRE under construction not covered by existing capacity
+          fleet_vre_area(z,vre)    free area summed over the zone's cells
+          fleet_vre_cells(z,vre)   number of cells the technology can use in the zone;
+fleet_vre_short(z,vre) = max(0., var_tot_pcap_z.LO(z,vre)
+    - sum(r$(vre_lim(vre,z,r)), var_exist_vre_pcap_r.L(z,vre,r)));
+fleet_vre_area(z,vre) = sum(r$(vre_lim(vre,z,r)), area(vre,z,r));
+fleet_vre_cells(z,vre) = sum(r$(vre_lim(vre,z,r)), 1);
+var_new_vre_pcap_r.L(z,vre,r) = 0.;
+var_new_vre_pcap_r.L(z,vre,r)$(vre_lim(vre,z,r) and fleet_vre_short(z,vre) > 0.
+    and fleet_vre_area(z,vre) > 0. and fleet_vre_area(z,vre) < inf)
+    = fleet_vre_short(z,vre)*area(vre,z,r)/fleet_vre_area(z,vre);
+var_new_vre_pcap_r.L(z,vre,r)$(vre_lim(vre,z,r) and fleet_vre_short(z,vre) > 0.
+    and fleet_vre_area(z,vre) = inf)
+    = fleet_vre_short(z,vre)/fleet_vre_cells(z,vre);
+var_new_pcap_z.L(z,vre) = sum(r$(vre_lim(vre,z,r)), var_new_vre_pcap_r.L(z,vre,r));
+
+* VRE that must exist but has no free area to go in cannot be placed. Say so
+* rather than write a fleet that misses it.
+abort$(sum((z,vre)$(fleet_vre_short(z,vre) > 1e-6 and fleet_vre_area(z,vre) <= 0.), 1))
+    "VRE under construction in a zone with no free area", fleet_vre_short;
+
+var_new_trans_pcap.L(z,z_alias,trans) = 0.;
+
+$ifThen.fromstore "%storage%" == ON
+var_exist_store_pcap_z.L(z,s) = var_exist_store_pcap_z.LO(z,s);
+var_exist_store_pcap_z.L(z,s)$(var_exist_store_pcap_z.UP(z,s) < inf) = var_exist_store_pcap_z.UP(z,s);
+var_exist_store_ecap_z.L(z,s) = var_exist_store_ecap_z.LO(z,s);
+var_exist_store_ecap_z.L(z,s)$(var_exist_store_ecap_z.UP(z,s) < inf) = var_exist_store_ecap_z.UP(z,s);
+var_new_store_pcap_z.L(z,s) = max(0.,
+    var_tot_store_pcap_z.LO(z,s) - var_exist_store_pcap_z.L(z,s));
+var_new_store_ecap_z.L(z,s) = max(0.,
+    var_tot_store_ecap_z.LO(z,s) - var_exist_store_ecap_z.L(z,s));
+$endIf.fromstore
+
+$ifThen.fromhydro "%hydrores%" == ON
+var_exist_hydro_ecap_z.L(z,hydro_res) = var_exist_hydro_ecap_z.LO(z,hydro_res);
+var_exist_hydro_ecap_z.L(z,hydro_res)$(var_exist_hydro_ecap_z.UP(z,hydro_res) < inf)
+    = var_exist_hydro_ecap_z.UP(z,hydro_res);
+var_new_hydro_ecap_z.L(z,hydro_res) = max(0.,
+    var_tot_hydro_ecap_z.LO(z,hydro_res) - var_exist_hydro_ecap_z.L(z,hydro_res));
+$endIf.fromhydro
+
+execute_unload "%outname%.gdx"
+    var_exist_pcap_z, var_new_pcap_z, var_tot_pcap_z,
+    var_exist_vre_pcap_r, var_new_vre_pcap_r,
+    var_exist_trans_pcap, var_new_trans_pcap
+$IF "%storage%" == ON     , var_exist_store_pcap_z, var_new_store_pcap_z, var_exist_store_ecap_z, var_new_store_ecap_z
+$IF "%hydrores%" == ON    , var_exist_hydro_ecap_z, var_new_hydro_ecap_z
+;
+
+$exit
+
+$endIf.fromin
 
 
 Equations
