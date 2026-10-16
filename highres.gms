@@ -841,7 +841,7 @@ var_new_hydro_ecap_z.L(z,hydro_res) = max(0.,
 $endIf.fromhydro
 
 execute_unload "%outname%.gdx"
-    var_exist_pcap_z, var_new_pcap_z, var_tot_pcap_z,
+    vre, var_exist_pcap_z, var_new_pcap_z, var_tot_pcap_z,
     var_exist_vre_pcap_r, var_new_vre_pcap_r,
     var_exist_trans_pcap, var_new_trans_pcap
 $IF "%storage%" == ON     , var_exist_store_pcap_z, var_new_store_pcap_z, var_exist_store_ecap_z, var_new_store_ecap_z
