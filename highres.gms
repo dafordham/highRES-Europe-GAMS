@@ -926,6 +926,21 @@ $endIf.sdepth
 
 $endIf.scopeeq
 
+* Optional per-zone shedding cap, for robustness checks only. Caps the
+* shedding in the listed zones at shed_cap_frac of their own hourly demand,
+* while the epsilon and delta constraints above stay exactly as they are.
+* Used to ask whether the solution still holds if the countries that shed
+* most are not allowed to. Off unless --shed_cap_zones is given, so every
+* run without it is unchanged. Example:
+*   --shed_cap_zones=EE,SE,IE,FI --shed_cap_frac=0
+* Placed before the "off" block so off still pins shedding to zero.
+$ifThen.shedcap set shed_cap_zones
+$if not set shed_cap_frac $setglobal shed_cap_frac "0"
+Set z_shed_cap(z) zones whose shedding is capped / %shed_cap_zones% /;
+Scalar shed_cap_frac cap as a fraction of the zone's hourly demand /%shed_cap_frac%/;
+var_shed.up(h,z)$z_shed_cap(z) = shed_cap_frac * demand(z,h);
+$endIf.shedcap
+
 * off: no shed equations at all — pin the variable so presolve removes it,
 * leaving the stock highRES strict-adequacy model.
 $ifThen.shedoff "%shed_mode%" == "off"
