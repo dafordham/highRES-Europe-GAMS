@@ -581,8 +581,8 @@ $endIf
 * refiner names exactly that triple: eq_exist_vre_pcap_z(AT,Solar) with the
 * cell fixed at 1.92 and the zonal variable pinned at 0.1946.
 
-* Both switches read the same file in the same format, so caps2dd.py and
-* ledger2dd.py serve either. fleet_dd is whichever one is set.
+* Both switches read the same file in the same format, written by caps2dd.py.
+* fleet_dd is whichever one is set.
 
 $setglobal fleet_dd ""
 $if NOT "%fix_fleet%" == "" $setglobal fleet_dd "%fix_fleet%"
@@ -617,15 +617,6 @@ $IF "%hydrores%" == ON par_fix_exist_hydro_ecap_z(z,hydro_res)
 par_fix_new_trans_pcap(z,z_alias,trans)
 par_fix_exist_trans_pcap(z,z_alias,trans)
 ;
-
-* Zones the fleet file speaks for. caps2dd.py and ledger2dd.py always write
-* this set; empty means the whole model, which is the production case. A
-* non-empty set exists for tests that treat a few countries as an island
-* inside the full 28-zone input set: without it an expansion builds generation
-* in a zero-demand neighbour and a line to import from it, because that is
-* genuinely cheaper, and the island silently stops being one.
-
-set fleet_zones(z)   zones this fleet file covers;
 
 $INCLUDE %datafolderpath%/%fleet_dd%.dd
 ;
@@ -722,24 +713,6 @@ var_exist_hydro_ecap_z.FX(z,hydro_res) = par_fix_exist_hydro_ecap_z(z,hydro_res)
 
 $endIf.fxhydro
 
-* Outside the fleet's own zones nothing new may be built, and no line may be
-* built unless BOTH ends are in scope. Only meaningful for fleet_floor: a
-* fix_fleet dispatch already pins every capacity in the system.
-
-$ifThen.scope NOT "%fleet_floor%" == ""
-
-if(card(fleet_zones) > 0,
-    var_new_pcap_z.FX(z,g)$(not fleet_zones(z)) = 0.;
-    var_new_vre_pcap_r.FX(z,vre,r)$((not fleet_zones(z)) and vre_lim(vre,z,r)) = 0.;
-$IF "%storage%" == ON     var_new_store_pcap_z.FX(z,s)$(not fleet_zones(z)) = 0.;
-$IF "%storage%" == ON     var_new_store_ecap_z.FX(z,s)$(not fleet_zones(z)) = 0.;
-$IF "%hydrores%" == ON     var_new_hydro_ecap_z.FX(z,hydro_res)$(not fleet_zones(z)) = 0.;
-    var_new_trans_pcap.FX(z,z_alias,trans)$(trans_links(z,z_alias,trans)
-        and (not (fleet_zones(z) and fleet_zones(z_alias)))) = 0.;
-);
-
-$endIf.scope
-
 * Transmission. This overrides whatever trans_inv set above, deliberately: with
 * a fixed fleet the lines are part of the fleet.
 
@@ -819,6 +792,12 @@ var_new_pcap_z.L(z,vre) = sum(r$(vre_lim(vre,z,r)), var_new_vre_pcap_r.L(z,vre,r
 abort$(sum((z,vre)$(fleet_vre_short(z,vre) > 1e-6 and fleet_vre_area(z,vre) <= 0.), 1))
     "VRE under construction in a zone with no free area", fleet_vre_short;
 
+* [cl] existing VRE the data gives a zone but not its grid cells would be lost,
+* since the fleet is fixed per cell. stop rather than drop it
+abort$(sum((z,vre)$(var_exist_pcap_z.UP(z,vre) < inf and var_exist_pcap_z.UP(z,vre)
+    - sum(r$(vre_lim(vre,z,r)), var_exist_vre_pcap_r.L(z,vre,r)) > 1e-3), 1))
+    "existing VRE in a zone that is not in any of its grid cells";
+
 var_new_trans_pcap.L(z,z_alias,trans) = 0.;
 
 $ifThen.fromstore "%storage%" == ON
@@ -841,7 +820,7 @@ var_new_hydro_ecap_z.L(z,hydro_res) = max(0.,
 $endIf.fromhydro
 
 execute_unload "%outname%.gdx"
-    vre, var_exist_pcap_z, var_new_pcap_z, var_tot_pcap_z,
+    var_exist_pcap_z, var_new_pcap_z, var_tot_pcap_z,
     var_exist_vre_pcap_r, var_new_vre_pcap_r,
     var_exist_trans_pcap, var_new_trans_pcap
 $IF "%storage%" == ON     , var_exist_store_pcap_z, var_new_store_pcap_z, var_exist_store_ecap_z, var_new_store_ecap_z
