@@ -443,7 +443,7 @@ $offtext
 * pathways
 *********************************************************
 
-* Solve status, as numbers a caller can read. Both statuses were previously
+* [cl] Solve status, as numbers a caller can read. Both statuses were previously
 * only in highres.lst and in one field of the csv log line, which is why a
 * non-optimal solve could be consumed as if it were optimal: GAMS exits 0 and
 * the result parameters are still written. An infeasible fixed-fleet dispatch
@@ -460,7 +460,7 @@ o_modelstat = Dispatch.modelStat;
 o_solvestat = Dispatch.solveStat;
 display o_modelstat, o_solvestat;
 
-* var_ens, ens_total and every marginal land in results.gdx already, because
+* [cl] var_ens, ens_total and every marginal land in results.gdx already, because
 * execute_unload dumps all symbols. What is added here is the share of demand
 *
 * One dual is worth reading off the solved model:
@@ -478,7 +478,7 @@ o_ens_z(z) = sum(h,var_ens.L(h,z));
 parameter o_demand_total  total demand over the modelled horizon;
 o_demand_total = sum((z,h),demand(z,h));
 
-* ENS as a fraction of demand. 
+* [cl] ENS as a fraction of demand. 
 
 parameter o_ens_share   energy not served as a share of demand;
 o_ens_share$(o_demand_total > 0.) = o_ens_total/o_demand_total;

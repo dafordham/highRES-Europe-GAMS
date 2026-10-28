@@ -46,7 +46,7 @@ $offdigit
 * fx_caps_to = file containing capacities to fix the system to
 *
 * pathways
-* Climate-Robust Pathways switches:
+* [cl] Climate-Robust Pathways switches:
 *
 * fix_fleet = .dd file holding a previously solved fleet. When set, every
 *               capacity in the system is fixed to it and only dispatch is
@@ -127,7 +127,7 @@ $setglobal trans_cap_lim "20"
 $setglobal fx_caps_to ""
 
 * pathways
-* Climate-Robust Pathways
+* [cl] Climate-Robust Pathways
 
 $setglobal fix_fleet ""
 $setglobal fleet_floor ""
@@ -554,34 +554,34 @@ $endIf
 * pathways
 *********************************************************
 
-* Pins every capacity in the system to a previously solved fleet read from
+* [cl] Pins every capacity in the system to a previously solved fleet read from
 * %fix_fleet%.dd, leaving only dispatch free.
 *
-* Deliberately separate from fx_caps_to above, which is left untouched. That 
+* [cl] Deliberately separate from fx_caps_to above, which is left untouched. That 
 * block didn't seem to work.
 *
-* VRE is fixed at grid cell level and never zonally. eq_new_vre_pcap_z already
+* [cl] VRE is fixed at grid cell level and never zonally. eq_new_vre_pcap_z already
 * ties sum(cells) = var_new_pcap_z, so fixing both over-determines the system
 * and any rounding mismatch makes it infeasible. Fixing only the zonal total
 * would be worse: the optimiser could relocate VRE within a zone to suit
 * whichever weather realisation it faces, which is re-investing rather than
 * dispatching, and would understate ENS.
 *
-* The zonal VRE variables must therefore be FREED here, because the scenario
+* [cl] The zonal VRE variables must therefore be FREED here, because the scenario
 * bounds them independently a few hundred lines above: gen_exist_pcap_z pins
 * existing VRE zonally, and any (z,g) the scenario does not mention has its
 * existing capacity forced to zero. Both contradict a fleet that came from
 * somewhere else. eq_exist_vre_pcap_z and eq_new_vre_pcap_z then define the
 * zonal values from the fixed cells, which is the single source of truth.
 *
-* This did not surface while every fleet came from caps2dd.py reading a solved
+* [cl] This did not surface while every fleet came from caps2dd.py reading a solved
 * run of this same scenario, where the zonal value equals the scenario's by
 * construction. A ledger disagrees -- AT.Solar is 1.92 GW in the 2030 ledger
 * against the scenario's 0.1946 GW of 2010 capacity -- and CPLEX's conflict
 * refiner names exactly that triple: eq_exist_vre_pcap_z(AT,Solar) with the
 * cell fixed at 1.92 and the zonal variable pinned at 0.1946.
 
-* Both switches read the same file in the same format, written by caps2dd.py.
+* [cl] Both switches read the same file in the same format, written by caps2dd.py.
 * fleet_dd is whichever one is set.
 
 $setglobal fleet_dd ""
@@ -594,12 +594,12 @@ $endIf.bothfleet
 
 $ifThen.fxfleet NOT "%fleet_dd%" == ""
 
-* caps2dd.py writes a block for every parameter below, empty if that capacity
+* [cl] caps2dd.py writes a block for every parameter below, empty if that capacity
 * is all zero. So a parameter left unassigned here means the name in the .dd
 * does not match the name declared, and GAMS error 141 catches it at compile
 * time rather than the capacity being silently fixed to zero.
 *
-* Do not zero these before the $INCLUDE. Includes and .dd data are
+* [cl] Do not zero these before the $INCLUDE. Includes and .dd data are
 * compile-time, assignments are execution-time, so the zeroing always runs
 * after the load and wipes the fleet.
 
@@ -621,20 +621,20 @@ par_fix_exist_trans_pcap(z,z_alias,trans)
 $INCLUDE %datafolderpath%/%fleet_dd%.dd
 ;
 
-* Non-VRE generation: zonal
+* [cl] Non-VRE generation: zonal
 
-* Existing capacity is fixed in both modes: what the fleet already has is not
+* [cl] Existing capacity is fixed in both modes: what the fleet already has is not
 * a decision. New capacity is fixed for a dispatch and lower bounded for an
 * expansion, which is the whole difference between the two switches.
 *
-* A floor must never exceed the variable's own upper bound. A solved level can
+* [cl] A floor must never exceed the variable's own upper bound. A solved level can
 * sit marginally ABOVE its bound -- CPLEX returned
 * var_new_trans_pcap(AT,CZ,HVAC_OHL) = 1.50000042 against a TYNDP limit of 1.5,
 * inside its feasibility tolerance -- and flooring there gives .LO > .UP, which
 * GAMS refuses as "Matrix error - lower bound > upper bound" before solving.
 * Any variable that lands on a bound does this.
 *
-* So every floor is the carried value MINUS the solver's feasibility tolerance,
+* [cl] So every floor is the carried value MINUS the solver's feasibility tolerance,
 * which is the exact size of the problem: CPLEX may violate a bound by up to
 * eprhs, so a level can exceed its bound by at most that, and subtracting it
 * puts the floor back under the bound. Absolute, not relative: eprhs is an
@@ -642,14 +642,14 @@ $INCLUDE %datafolderpath%/%fleet_dd%.dd
 * capacity -- 1e-6 relative on 0.0005 GW is 5e-10, a thousand times less than
 * the overshoot it has to absorb.
 *
-* A floor is a LOWER bound, so giving up a tolerance-sized sliver costs nothing:
+* [cl] A floor is a LOWER bound, so giving up a tolerance-sized sliver costs nothing:
 * the expansion may still build exactly what it built before, and in the test
 * seven of eighteen assets sat back down on their floor.
 *
-* floor_tol must follow eprhs in cplex.opt. It is the default there, so both are
+* [cl] floor_tol must follow eprhs in cplex.opt. It is the default there, so both are
 * 1e-6; loosening eprhs without raising this reopens the bug.
 *
-* Two alternatives were tried and rejected. min(..., .UP) reads a variable
+* [cl] Two alternatives were tried and rejected. min(..., .UP) reads a variable
 * attribute before anything has assigned it, which trips GAMS error 141, and
 * suppressing that check is what was removed on 2026-10-02. Truncating the
 * values in caps2dd.py broke eq_store_ecap_max, because a dispatch pins storage
@@ -664,7 +664,7 @@ var_new_pcap_z.LO(z,non_vre)   = max(0., par_fix_new_pcap_z(z,non_vre)-floor_tol
 $endIf.floor
 var_exist_pcap_z.FX(z,non_vre) = par_fix_exist_pcap_z(z,non_vre);
 
-* VRE: grid cell level, restricted to the cells a technology can exist in.
+* [cl] VRE: grid cell level, restricted to the cells a technology can exist in.
 * Note vre_lim is declared (vre,z,r) while the variable is (z,vre,r), so the
 * set cannot be used as the controlling index directly, because it would bind
 * positionally and put vre in z's slot. The dollar condition is the form the
@@ -687,7 +687,7 @@ var_exist_vre_pcap_r.FX(z,vre,r)$(vre_lim(vre,z,r))
 
 $ifThen.fxstore "%storage%" == ON
 
-* Note EV storage is not special-cased here; with EV OFF its capacities are
+* [cl] Note EV storage is not special-cased here; with EV OFF its capacities are
 * already zero and the fixing is consistent. Revisit if EV is ever turned on.
 
 $ifThen.floorstore "%fleet_floor%" == ""
@@ -713,7 +713,7 @@ var_exist_hydro_ecap_z.FX(z,hydro_res) = par_fix_exist_hydro_ecap_z(z,hydro_res)
 
 $endIf.fxhydro
 
-* Transmission. This overrides whatever trans_inv set above, deliberately: with
+* [cl] Transmission. This overrides whatever trans_inv set above, deliberately: with
 * a fixed fleet the lines are part of the fleet.
 
 $ifThen.floortrans "%fleet_floor%" == ""
@@ -734,18 +734,18 @@ $endIf.fxfleet
 * pathways
 *********************************************************
 
-* Reads every capacity off the bounds the data above has just set, writes it
+* [cl] Reads every capacity off the bounds the data above has just set, writes it
 * and stops before any equation is generated. Done here rather than by parsing
 * the .dd files in Python so that the fleet is exactly what this model sees:
 * the same unit conversions, the same handling of zonal and per-cell VRE, of
 * hydro and of link direction. pathway_step.py turns the gdx into a fleet .dd
 * with caps2dd.py.
 *
-* Existing capacity takes its upper bound if it has one, its lower bound
+* [cl] Existing capacity takes its upper bound if it has one, its lower bound
 * otherwise. Where the data lets the optimiser keep or retire an existing plant
 * (an UP bound only), it is counted as kept: the most the fleet can have.
 *
-* New capacity is only what the limits force: max(0, total.LO - existing).
+* [cl] New capacity is only what the limits force: max(0, total.LO - existing).
 * That is plant under construction, which the inputs step writes as a lower
 * bound on TOTAL capacity. Nothing in the data bounds new capacity itself from
 * below, and reading a bound nothing has assigned is GAMS error 141, so the
@@ -768,7 +768,7 @@ var_exist_trans_pcap.L(z,z_alias,trans)$(trans_links(z,z_alias,trans))
 var_new_pcap_z.L(z,g)$(not vre(g)) = max(0.,
     var_tot_pcap_z.LO(z,g) - var_exist_pcap_z.L(z,g));
 
-* Some cells have unlimited free area (inf), where a proportional split is
+* [cl] Some cells have unlimited free area (inf), where a proportional split is
 * undefined, so those zones split equally between their cells.
 
 parameter fleet_vre_short(z,vre)   VRE under construction not covered by existing capacity
@@ -787,7 +787,7 @@ var_new_vre_pcap_r.L(z,vre,r)$(vre_lim(vre,z,r) and fleet_vre_short(z,vre) > 0.
     = fleet_vre_short(z,vre)/fleet_vre_cells(z,vre);
 var_new_pcap_z.L(z,vre) = sum(r$(vre_lim(vre,z,r)), var_new_vre_pcap_r.L(z,vre,r));
 
-* VRE that must exist but has no free area to go in cannot be placed. Say so
+* [cl] VRE that must exist but has no free area to go in cannot be placed. Say so
 * rather than write a fleet that misses it.
 abort$(sum((z,vre)$(fleet_vre_short(z,vre) > 1e-6 and fleet_vre_area(z,vre) <= 0.), 1))
     "VRE under construction in a zone with no free area", fleet_vre_short;
@@ -937,7 +937,7 @@ $ifThen "%ens_obj%" == ON
 
 $if "%fix_fleet%" == "" $abort ens_obj=ON requires fix_fleet: there is no fleet to dispatch (fleet_floor is for expansion solves, which minimise cost)
 
-* Energy not served over the whole system and the whole horizon. Pathways
+* [cl] Energy not served over the whole system and the whole horizon. Pathways
 
     eq_ens_total ..
         ens_total =E= sum((h,z),var_ens(h,z));
@@ -1225,7 +1225,7 @@ Dispatch.OptFile = 1;
 * pathways
 $ifThen.obj "%ens_obj%" == ON
 
-* Cost is still computed, since eq_obj and the cost components stay in the
+* [cl] Cost is still computed, since eq_obj and the cost components stay in the
 * model. It is simply no longer what is optimised, and nothing constrains it:
 * varom, the generation mix and curtailment from an ens_obj solve are not
 * interpretable.
